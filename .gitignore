@@ -1,0 +1,5 @@
+# intellij idea project metadata
+.idea
+
+# generated benchmarking scripts and analyses
+outputs/*
