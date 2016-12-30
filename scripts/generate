@@ -1,0 +1,162 @@
+#!/usr/bin/env python
+import os
+
+import numpy as np
+import pystache
+import arrow
+import shutil
+from tinydb import TinyDB
+import click
+import hashlib
+
+
+@click.group()
+def main():
+    """
+    Supercomputer benchmark script generator. For command line options,
+    re-run with --help flag.
+    """
+
+    pass
+
+
+# TODO consider making the command an argument since it's always required
+@main.command()
+@click.option('--repetitions', type=int,
+              help='Number of times to repeat each algorithm benchmark',
+              default=3)
+@click.option('--command', 'command', help='Command to benchmark', type=str)
+@click.option('--param', 'params', type=str, multiple=True,
+              help='Parameter to run as-is')
+@click.option('--param-dynamic', 'param_dynamic', type=str,
+              help='Base parameter with dynamically generated input size. '
+              'Requires --param-dynamic-min and --param-dynamic-max')
+@click.option('--param-dynamic-min', 'param_dynamic_min', type=str,
+              help='Minimum value for dynamically generated input size'
+                   'or minimum value of power when choosing poweroftwo.')
+@click.option('--param-dynamic-max', 'param_dynamic_max', type=str,
+              help='Maximum value for dynamically generated input size.'
+                   'or maximum value of power when choosing poweroftwo.')
+@click.option('--param-dynamic-step', 'param_dynamic_step', type=str,
+              help='Step size for dynamic input parameter '
+                   '(int, float, or "poweroftwo").')
+@click.option('--name', 'run_name', type=str, help='Name of this set of runs')
+@click.option('--output-dir', 'output_dir', type=str,
+              default='outputs/algorithm-benchmarker',
+              help='Custom filepath to output metadata, analyses, and runs to')
+def benchmark(repetitions, command, params, param_dynamic, param_dynamic_min,
+              param_dynamic_max, param_dynamic_step, run_name, output_dir):
+    click.echo('Generating benchmark scripts...')
+
+    if run_name is None:
+        run_name = arrow.utcnow().format('benchmarks_YYYY-MM-DD_HH-mm-ss_utc')
+
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    if command is None:
+        raise ValueError('Must provide a command to benchmark.')
+
+    if len(params) > 0 and param_dynamic is not None:
+        raise ValueError('You must either provide one or more --param or '
+                         'a single --param-dynamic, not both.')
+
+    benchmark_runs_db = TinyDB(os.path.join(output_dir, 'metadata.json'))
+    hasher = hashlib.md5()
+
+    commands = []
+    command = command.strip()
+
+    param_dynamic = param_dynamic.strip()
+    if ' ' in param_dynamic:
+        click.echo('Warning: --param-dynamic contains space(s), '
+                   'which is unusual. You might be intending to use --param?')
+
+    if param_dynamic is not None:
+        def generate_dynamic_command(param_value):
+            p = '{} {}'.format(param_dynamic, param_value)
+            for rep_id in range(repetitions):
+                hasher.update(command + p + str(rep_id))
+                return {
+                    'hash': hasher.hexdigest(),
+                    'command': command,
+                    'param': p,
+                    'repetition_id': rep_id
+                }
+
+        if param_dynamic_step == 'powersoftwo':
+            for i in xrange(int(param_dynamic_min), int(param_dynamic_max)):
+                commands.append(generate_dynamic_command(2**i))
+        elif '.' in param_dynamic_step:
+            try:
+                param_dynamic_step = float(param_dynamic_step)
+                param_dynamic_min = float(param_dynamic_min)
+                param_dynamic_max = float(param_dynamic_max)
+            except:
+                raise ValueError('Expecting --param-dynamic-step, '
+                                 '--param-dynamic-min, and '
+                                 '--param-dynamic-max to be floats.')
+            for f in np.arange(param_dynamic_min, param_dynamic_max,
+                               param_dynamic_step):
+                commands.append(generate_dynamic_command(f))
+        else:
+            try:
+                param_dynamic_step = int(param_dynamic_step)
+                param_dynamic_min = int(param_dynamic_min)
+                param_dynamic_max = int(param_dynamic_max)
+            except:
+                raise ValueError('Expecting --param-dynamic-step, '
+                                 '--param-dynamic-min, and '
+                                 '--param-dynamic-max to be ints.')
+
+            for i in np.arange(param_dynamic_min, param_dynamic_max,
+                               param_dynamic_step):
+                commands.append(generate_dynamic_command(i))
+
+    else:
+        if len(params) == 0:
+            params = ['']
+
+        for param in params:
+            param = param.strip()
+            for repetition_id in range(repetitions):
+                hasher.update(command + param + str(repetition_id))
+                commands.append({
+                    'hash': hasher.hexdigest(),
+                    'command': command,
+                    'param': param,
+                    'repetition_id': repetition_id
+                })
+
+    now = arrow.utcnow()
+    benchmark_runs_db.insert({
+        'name': run_name,
+        'utc_time': now.format(),
+        'unix_time': now.timestamp,
+        'commands': commands,
+        'results': {
+            'walltime_secs': None,
+            'cpu_user_secs': None,
+            'cpu_kernel_secs': None,
+            'memory_resident_size_kb': None
+        }
+    })
+
+    # Mustache template variables
+    benchmark_configuration = {
+        'commands': commands
+    }
+
+    with open('assets/run.mustache') as f:
+        run_script = pystache.render(f.read(), benchmark_configuration)
+
+    with open(os.path.join(output_dir, 'run_benchmarks.sh'), 'w') as f:
+        f.write(run_script)
+
+    shutil.copyfile('assets/time.sh', os.path.join(output_dir, 'time.sh'))
+
+    click.echo('Benchmark runner scripts generated.')
+
+
+if __name__ == '__main__':
+    main()

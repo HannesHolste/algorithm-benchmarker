@@ -1,0 +1,19 @@
+#!/bin/bash
+
+# Mustache template for shell script to run several benchmarks using time.sh
+
+# TODO if dest already exists, rename the old one or prompt user on what to do
+#TODO: pipe output of actual command somewhere and store it
+
+dest=$PWD/algorithm-benchmarker-outputs
+mkdir $dest
+
+# Create output directory structure
+time_dest=$dest"/time-results"
+
+mkdir $time_dest
+
+# benchmarking commands:
+{{#commands}}
+sh $PWD/algorithm-benchmarker/time.sh $time_dest/{{hash}}.txt {{command}} {{param}}
+{{/commands}}
