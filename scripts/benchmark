@@ -1,0 +1,247 @@
+#!/usr/bin/env python
+import hashlib
+import os
+from subprocess import call
+
+import arrow
+import click
+import numpy as np
+from tinydb import TinyDB, Query
+
+
+@click.group()
+def main():
+    """
+    Program benchmarker intended for use on supercomputers e.g. in TORQUE
+    environments. For command line options, re-run with --help flag.
+    """
+
+    pass
+
+
+@main.command()
+@click.option('--repetitions', type=int,
+              help='Number of times to repeat each command benchmark '
+                   '(used to compute error bars and standard deviation)',
+              default=3)
+@click.option('--command', 'command', help='Command to benchmark', type=str)
+@click.option('--param', 'params', type=str, multiple=True,
+              help='Parameter to run as-is')
+@click.option('--param-dynamic', 'param_dynamic', type=str,
+              help='Base parameter with dynamically generated input size. '
+                   'Requires --param-dynamic-min and --param-dynamic-max')
+@click.option('--param-dynamic-min', 'param_dynamic_min', type=int,
+              help='Minimum value for dynamically generated input size')
+@click.option('--param-dynamic-max', 'param_dynamic_max', type=int,
+              help='Maximum value for dynamically generated input size.')
+@click.option('--param-dynamic-step', 'param_dynamic_step', type=int,
+              help='Step size for dynamic input parameter (integer).')
+@click.argument('output_dir', type=click.Path(writable=True, readable=True,
+                                              resolve_path=True),
+                default='./benchmark-results')
+def start(repetitions, command, params, param_dynamic, param_dynamic_min,
+          param_dynamic_max, param_dynamic_step, output_dir):
+    click.echo('\nAlgorithm benchmarker.')
+    click.echo('by Hannes Holste (2016)')
+    click.echo('for the Knight Lab at the University of California, San Diego')
+    click.echo('\n')
+
+    click.echo('Storing results into directory: %s' % output_dir)
+
+    # Sanity checks for input
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    elif not click.confirm('The directory %s exists. '
+                           'Do you want to overwrite?' % output_dir):
+        click.echo('Aborting.')
+        return
+
+    if command is None:
+        raise ValueError('Must provide a command to benchmark.')
+
+    if len(params) > 0 and param_dynamic is not None:
+        raise ValueError('You must either provide one or more --param or '
+                         'a single --param-dynamic, not both.')
+
+    # Clean input
+    param_dynamic = None if param_dynamic is None else param_dynamic.strip()
+    params = None if params is None else map(lambda p: p.strip(), params)
+    command = command.strip()
+
+    click.echo('Generating metadata for benchmarks...')
+    # Create metadata store to track commands and their timing benchmarks
+    benchmarks_db = TinyDB(os.path.join(output_dir,
+                                        'benchmarks_metadata.json'))
+    benchmarks_db.purge()
+    hasher = hashlib.md5()
+
+    # Generate commands with dynamically generated parameters
+    if param_dynamic is not None:
+        if ' ' in param_dynamic:
+            click.echo('Warning: --param-dynamic contains space(s), '
+                       'which is unusual. You might be intending to use '
+                       '--param?')
+
+        for param_value in np.arange(param_dynamic_min, param_dynamic_max,
+                                     param_dynamic_step):
+            command_with_param = '{} {} {}'.format(command,
+                                                   param_dynamic, param_value)
+            for rep_id in range(repetitions):
+                hasher.update(command_with_param)
+                hashed = hasher.hexdigest()
+                benchmarks_db.insert({
+                    'hash': hashed,
+                    'unix_timestamp': arrow.utcnow().timestamp,
+                    'filename': '{}.txt'.format(hashed),
+                    'command': command,
+                    'param': '{} {}'.format(param_dynamic, param_value),
+                    'command_with_param': command_with_param,
+                    'repetition_id': rep_id,
+                    'timing_result': None
+                })
+
+    # Generate commands with provided parameters
+    elif params is None or len(params) > 0:
+        for param in params:
+            command_with_param = '{} {}'.format(command, param)
+            for rep_id in range(repetitions):
+                hasher.update(command_with_param)
+                hashed = hasher.hexdigest()
+                benchmarks_db.insert({
+                    'hash': hashed,
+                    'unix_timestamp': arrow.utcnow().timestamp,
+                    'filename': '{}.txt'.format(hashed),
+                    'command': command,
+                    'param': param,
+                    'command_with_param': command_with_param,
+                    'repetition_id': rep_id,
+                    'timing_result': None
+                })
+    # Generate command with no parameters
+    else:
+        for rep_id in range(repetitions):
+            hasher.update(command)
+            hashed = hasher.hexdigest()
+            benchmarks_db.insert({
+                'hash': hashed,
+                'unix_timestamp': arrow.utcnow().timestamp,
+                'filename': '{}.txt'.format(hashed),
+                'command': command,
+                'param': None,
+                'command_with_param': command,
+                'repetition_id': rep_id,
+                'timing_result': None
+            })
+            # TODO separate table for timings with
+            # results field and failed=boolean
+
+    click.echo('Running benchmarks now.')
+
+    failed_benchmarks = []
+    for benchmark in benchmarks_db.all():
+        return_code_1 = run_benchmark(benchmark, output_dir)
+        return_code_2 = update_benchmark_result(benchmarks_db, benchmark,
+                                                output_dir)
+        if (return_code_1 == EXIT_CODE_ERROR or
+                return_code_2 == EXIT_CODE_ERROR):
+            failed_benchmarks.append(benchmark)
+
+    click.echo('Benchmarks complete.')
+
+    click.echo('\nSummary\n-------')
+    click.echo('{} command timed successfully, {} failed.'
+               .format(len(benchmarks_db) - len(failed_benchmarks),
+                       len(failed_benchmarks)))
+    click.echo('\nFailed:')
+    for failed_benchmark in failed_benchmarks:
+        failed_command_output = None
+
+        try:
+            with open(os.path.join(output_dir, COMMAND_OUTPUTS_DIRNAME,
+                                   failed_benchmark['filename'])) as f:
+                failed_command_output = f.read()
+        except IOError:
+            pass
+
+        click.echo('- Repetition {} of: {}'
+                   .format(failed_benchmark['repetition_id'],
+                           failed_benchmark['command_with_param']))
+        click.echo('\t-> Output of stdout/stderr after executing command:')
+
+        if failed_command_output is None:
+            click.echo('\t   No output.')
+        else:
+            click.echo('\t   {}'.format(failed_command_output
+                                        .replace('\n', '\n\t   ')))
+
+TIMING_OUTPUTS_DIRNAME = '.timing_outputs'
+COMMAND_OUTPUTS_DIRNAME = '.command_outputs'
+
+EXIT_CODE_SUCCESS = 0
+EXIT_CODE_ERROR = 1
+
+
+def run_benchmark(benchmark_metadatum, output_dir):
+    print 'Running benchmark (repetition {}) for: {}'.format(
+        benchmark_metadatum['repetition_id'],
+        benchmark_metadatum['command_with_param'])
+    timing_out_dir = os.path.join(output_dir, TIMING_OUTPUTS_DIRNAME)
+    command_out_dir = os.path.join(output_dir, COMMAND_OUTPUTS_DIRNAME)
+
+    # Create directories if non existent
+    if not os.path.exists(timing_out_dir):
+        os.mkdir(timing_out_dir)
+    if not os.path.exists(command_out_dir):
+        os.mkdir(command_out_dir)
+
+    command_out_filepath = os.path.join(command_out_dir,
+                                        benchmark_metadatum['filename'])
+
+    timing_out_filepath = os.path.join(timing_out_dir,
+                                       benchmark_metadatum['filename'])
+
+    # Execute timing program
+    exit_code = call('(/usr/bin/time -o {} -f"%e;%U;%S;%M" {}) '
+                     '&> {}'.format(timing_out_filepath,
+                                    benchmark_metadatum['command_with_param'],
+                                    command_out_filepath), shell=True)
+    if exit_code != EXIT_CODE_SUCCESS:
+        click.echo('Error: Timing of {} failed with exit code {}'
+                   .format(benchmark_metadatum['command_with_param'],
+                           exit_code))
+    return exit_code
+
+
+def update_benchmark_result(benchmarks_db, benchmark_metadatum, output_dir):
+    timing_file = os.path.join(output_dir, TIMING_OUTPUTS_DIRNAME,
+                               benchmark_metadatum['filename'])
+
+    if not os.path.exists(timing_file) or os.stat(timing_file).st_size == 0:
+        click.echo('Warning: no timing results found for benchmark hash {} '
+                   ' repetition {} and command with parameter: {}'
+                   .format(benchmark_metadatum['hash'],
+                           benchmark_metadatum['repetition'],
+                           benchmark_metadatum['command_with_param']))
+        return EXIT_CODE_ERROR
+
+    with open(timing_file, 'r') as f:
+        parts = f.readline().replace('\n', '').split(';')
+
+        try:
+            benchmark_metadatum['timing_result'] = {
+                # TODO extract input size from param (optional)
+                'wall_time_secs': float(parts[0]),
+                'cpu_user_time_secs': float(parts[1]),
+                'cpu_kernel_time_secs': float(parts[2]),
+                'resident_set_memory_kb': int(parts[3]),
+            }
+        except IndexError:
+            click.echo('/usr/bin/time gave unexpected output.')
+
+    benchmarks_db.update(benchmark_metadatum,
+                         Query().hash == benchmark_metadatum['hash'])
+    return EXIT_CODE_SUCCESS
+
+
+if __name__ == '__main__':
+    main()
