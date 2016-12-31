@@ -6,6 +6,7 @@ from subprocess import call
 import arrow
 import click
 import numpy as np
+import uuid
 from tinydb import TinyDB, Query
 
 
@@ -86,13 +87,18 @@ def start(repetitions, command, params, param_dynamic, param_dynamic_min,
                                      param_dynamic_step):
             command_with_param = '{} {} {}'.format(command,
                                                    param_dynamic, param_value)
+            # only one group hash is generated for a set of repetitions
+            group_hash = uuid.uuid4().hex
+
             for rep_id in range(repetitions):
                 hasher.update(command_with_param)
-                hashed = hasher.hexdigest()
+                # one unique id hash per repetition
+                id_hash = hasher.hexdigest()
                 benchmarks_db.insert({
-                    'hash': hashed,
+                    'group_id': group_hash,
+                    'id': id_hash,
                     'unix_timestamp': arrow.utcnow().timestamp,
-                    'filename': '{}.txt'.format(hashed),
+                    'filename': '{}.txt'.format(id_hash),
                     'command': command,
                     'param': '{} {}'.format(param_dynamic, param_value),
                     'command_with_param': command_with_param,
@@ -104,13 +110,16 @@ def start(repetitions, command, params, param_dynamic, param_dynamic_min,
     elif params is None or len(params) > 0:
         for param in params:
             command_with_param = '{} {}'.format(command, param)
+            group_hash = uuid.uuid4().hex
+
             for rep_id in range(repetitions):
                 hasher.update(command_with_param)
-                hashed = hasher.hexdigest()
+                id_hash = hasher.hexdigest()
                 benchmarks_db.insert({
-                    'hash': hashed,
+                    'group_id': group_hash,
+                    'id': id_hash,
                     'unix_timestamp': arrow.utcnow().timestamp,
-                    'filename': '{}.txt'.format(hashed),
+                    'filename': '{}.txt'.format(id_hash),
                     'command': command,
                     'param': param,
                     'command_with_param': command_with_param,
@@ -119,13 +128,15 @@ def start(repetitions, command, params, param_dynamic, param_dynamic_min,
                 })
     # Generate command with no parameters
     else:
+        group_hash = uuid.uuid4().hex
         for rep_id in range(repetitions):
             hasher.update(command)
-            hashed = hasher.hexdigest()
+            id_hash = hasher.hexdigest()
             benchmarks_db.insert({
-                'hash': hashed,
+                'group_id': group_hash,
+                'id': id_hash,
                 'unix_timestamp': arrow.utcnow().timestamp,
-                'filename': '{}.txt'.format(hashed),
+                'filename': '{}.txt'.format(id_hash),
                 'command': command,
                 'param': None,
                 'command_with_param': command,
