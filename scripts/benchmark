@@ -9,14 +9,19 @@ import numpy as np
 import uuid
 from tinydb import TinyDB, Query
 
+TIMING_OUTPUTS_DIRNAME = '.timing_outputs'
+COMMAND_OUTPUTS_DIRNAME = '.command_outputs'
+
+EXIT_CODE_SUCCESS = 0
+EXIT_CODE_ERROR = 1
+
 
 @click.group()
 def main():
     """
-    Program benchmarker intended for use on supercomputers e.g. in TORQUE
-    environments. For command line options, re-run with --help flag.
+    Program benchmarker intended for use on personal or supercomputers
+    (e.g. in TORQUE environments).
     """
-
     pass
 
 
@@ -40,14 +45,47 @@ def main():
 @click.argument('output_dir', type=click.Path(writable=True, readable=True,
                                               resolve_path=True),
                 default='./benchmark-results')
-def start(repetitions, command, params, param_dynamic, param_dynamic_min,
-          param_dynamic_max, param_dynamic_step, output_dir):
-    click.echo('\nAlgorithm benchmarker.')
-    click.echo('by Hannes Holste (2016)')
-    click.echo('for the Knight Lab at the University of California, San Diego')
-    click.echo('\n')
+@click.pass_context
+def start(click_context, repetitions, command, params, param_dynamic,
+          param_dynamic_min, param_dynamic_max, param_dynamic_step,
+          output_dir):
+    """
+    Generate metadata for benchmarks and run them.
+    """
+    click_context.forward(generate)
+    click_context.invoke(run, output_dir)
 
-    click.echo('Storing results into directory: %s' % output_dir)
+
+@main.command()
+@click.option('--repetitions', type=int,
+              help='Number of times to repeat each command benchmark '
+                   '(used to compute error bars and standard deviation)',
+              default=3)
+@click.option('--command', 'command', help='Command to benchmark', type=str)
+@click.option('--param', 'params', type=str, multiple=True,
+              help='Parameter to run as-is')
+@click.option('--param-dynamic', 'param_dynamic', type=str,
+              help='Base parameter with dynamically generated input size. '
+                   'Requires --param-dynamic-min and --param-dynamic-max')
+@click.option('--param-dynamic-min', 'param_dynamic_min', type=int,
+              help='Minimum value for dynamically generated input size')
+@click.option('--param-dynamic-max', 'param_dynamic_max', type=int,
+              help='Maximum value for dynamically generated input size.')
+@click.option('--param-dynamic-step', 'param_dynamic_step', type=int,
+              help='Step size for dynamic input parameter (integer).')
+@click.argument('output_dir', type=click.Path(writable=True, readable=True,
+                                              resolve_path=True),
+                default='./benchmark-results')
+def generate(repetitions, command, params, param_dynamic,
+                      param_dynamic_min, param_dynamic_max, param_dynamic_step,
+                      output_dir):
+    """
+    Generate metadata for benchmarks, but do not run them.
+    """
+    print_header()
+
+    click.echo('Storing benchmark metadata and timing results '
+               'into directory: %s' % output_dir)
 
     # Sanity checks for input
     if not os.path.exists(output_dir):
@@ -146,10 +184,44 @@ def start(repetitions, command, params, param_dynamic, param_dynamic_min,
             # TODO separate table for timings with
             # results field and failed=boolean
 
-    click.echo('Running benchmarks now.')
+
+@main.command()
+@click.argument('output_dir', type=click.Path(writable=True, readable=True,
+                                              resolve_path=True),
+                default='./benchmark-results')
+@click.option('--only-failed', 'only_rerun_failed', is_flag=True,
+              default=False,
+              help='Only re-run previously failed benchmarks that had no '
+                   'timing outputs.')
+def run(output_dir, only_rerun_failed):
+    """
+    Run benchmarks as described by existing benchmark metadata file.
+    """
+    click.echo('Running benchmarks using metadata stored in directory %s.'
+               % output_dir)
+
+    benchmark_file = os.path.join(output_dir, 'benchmarks_metadata.json')
+
+    if not os.path.exists(benchmark_file):
+        click.echo('Error: cannot find metadata %s' % benchmark_file)
+        click.echo('Run "benchmark generate" to create one or specify a '
+                   'correct directory path that contains the benchmark '
+                   'metadata')
+        return
+
+    # Create metadata store to track commands and their timing benchmarks
+    benchmarks_db = TinyDB(benchmark_file)
+    benchmarks = benchmarks_db.all()
+    click.echo('Reading metadata for %d total benchmarks from %s'
+               % (len(benchmarks), benchmark_file))
+
+    if only_rerun_failed:
+        benchmarks = benchmarks_db.search(Query().timing_result == None)
+        click.echo('Only re-running previously failed benchmarks (%d total)'
+                   % len(benchmarks))
 
     failed_benchmarks = []
-    for benchmark in benchmarks_db.all():
+    for benchmark in benchmarks:
         return_code_1 = run_benchmark(benchmark, output_dir)
         return_code_2 = update_benchmark_result(benchmarks_db, benchmark,
                                                 output_dir)
@@ -185,11 +257,12 @@ def start(repetitions, command, params, param_dynamic, param_dynamic_min,
             click.echo('\t   {}'.format(failed_command_output
                                         .replace('\n', '\n\t   ')))
 
-TIMING_OUTPUTS_DIRNAME = '.timing_outputs'
-COMMAND_OUTPUTS_DIRNAME = '.command_outputs'
 
-EXIT_CODE_SUCCESS = 0
-EXIT_CODE_ERROR = 1
+def print_header():
+    click.echo('\nAlgorithm benchmarker.')
+    click.echo('by Hannes Holste (2016)')
+    click.echo('for the Knight Lab at the University of California, San Diego')
+    click.echo('\n')
 
 
 def run_benchmark(benchmark_metadatum, output_dir):
