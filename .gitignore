@@ -3,3 +3,6 @@
 
 # generated benchmarking scripts and analyses
 outputs/*
+
+# ipynb
+.ipynb_checkpoints
