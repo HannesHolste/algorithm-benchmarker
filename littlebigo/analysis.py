@@ -52,11 +52,11 @@ def df_from_benchmarks_aggregated(benchmarks_db, extract_input_size):
     # Calculate info for error bars for each col in cols_with_errorbars
     df_final = pd.DataFrame()
     for col in cols_with_errorbars:
-        # calculate mean and std
+        # calculate min and std
         df_errors = (df.groupby(['input_size'], as_index=False)[col]
-                     .agg({'{}_mean'.format(col): np.mean,
+                     .agg({'{}_min'.format(col): np.min,
                            '{}_std'.format(col): np.std})
-                     .sort_values(by=['{}_mean'.format(col)]))
+                     .sort_values(by=['{}_min'.format(col)]))
 
         # ensure that 'input_size' column is not duplicated
         cols_to_use = df_errors.columns.difference(df_final.columns)
