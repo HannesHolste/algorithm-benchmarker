@@ -6,3 +6,8 @@ outputs/*
 
 # ipynb
 .ipynb_checkpoints
+
+
+analysis/
+assets/
+benchmark-results-randdm-16k/
