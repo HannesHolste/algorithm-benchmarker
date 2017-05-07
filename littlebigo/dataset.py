@@ -35,9 +35,33 @@ class Dataset():
         add_dataset(self)
 
     def __hash__(self):
-        if isinstance(self.id, str):
-            return hash(self.id)
-        elif isinstance(self.id, dict):
-            return hash(frozenset(self.id.items()))
+        return self.hash_id(self.id)
+
+    @staticmethod
+    def hash_id(id_):
+        if isinstance(id_, str):
+            return hash(id_)
+        elif isinstance(id_, dict):
+            return hash(frozenset(id_.items()))
         else:
             raise ValueError('id must be either string or dict')
+
+    def __eq__(self, other):
+        """
+        Shallow equality check: only compares ids of datasets
+        :param other: other Dataset object
+        :return: whether the ids of the Dataset objects are equal
+        """
+        if type(other) is not type(self):
+            return False
+
+        return self.id == other.id
+
+    def __ne__(self, other):
+        return not(self.__eq__(other))
+
+    def __str__(self):
+        return str(self.id)
+
+    def __repr__(self):
+        return str(self.id)
