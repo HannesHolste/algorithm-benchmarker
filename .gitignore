@@ -7,6 +7,10 @@ outputs/*
 # ipynb
 .ipynb_checkpoints
 
+__pycache__
+*.pyc
+*.egg-info
+.cache/*
 
 analysis/
 assets/
