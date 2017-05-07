@@ -1,3 +1,7 @@
+analysis/
+assets/
+benchmark-results-randdm-16k/
+
 # intellij idea project metadata
 .idea
 
@@ -7,11 +11,50 @@ outputs/*
 # ipynb
 .ipynb_checkpoints
 
-__pycache__
-*.pyc
-*.egg-info
-.cache/*
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Icon?
+ehthumbs.db
+Thumbs.db
 
-analysis/
-assets/
-benchmark-results-randdm-16k/
+# python files
+*.pyc
+*.pyo
+
+# packages
+*.egg
+.cache/*
+*.egg-info
+__pycache__
+dist
+build
+eggs
+parts
+bin
+var
+sdist
+develop-eggs
+.installed.cfg
+
+# installer logs
+pip-log.txt
+
+# vi swap and temp files
+*.swp
+*.swo
+*~
+
+# compiled source
+*.com
+*.class
+*.dll
+*.exe
+*.o
+*.so
+
+# coveralls
+.coverage
