@@ -1,7 +1,7 @@
 from distutils.core import setup
 setup(
   name = 'littlebigo',
-  packages = ['littlebigo'],
+  packages = ['littlebigo', 'tests'],
   version = '0.0.1',
   description = 'Program and algorithm benchmarker for Big-O analysis',
   author = 'Hannes Holste',
@@ -16,5 +16,6 @@ setup(
                  'License :: OSI Approved :: BSD License',
                  'Natural Language :: English',
                  'Topic :: Scientific/Engineering',
-                 'Topic :: Utilities']
+                 'Topic :: Utilities'],
+  install_requires=['pytest']
 )
