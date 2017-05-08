@@ -1,12 +1,16 @@
 import os
 
-from littlebigo.master import add_dataset
+from littlebigo.master import add_dataset, get_datasets
 
 
 class Dataset():
     def __init__(self, id, filepath, description=""):
         """
         Initializes a data file, thus keeping track of it globally.
+
+        It is your responsibility to ensure that id's are unique and do
+        not conflict. The filepath is not used in a hashed representation of
+        this object; only the id is.
 
         :param id: string identifier or dict of key-value pairs. A dict is
             generally used when there are several identifiers used to track
@@ -31,6 +35,11 @@ class Dataset():
 
         if not os.path.exists(filepath):
             raise IOError('%s does not exist.' % filepath)
+
+        for d in get_datasets():
+            if hash(d) == hash(self):
+                raise ValueError('id already exists in master list '
+                                 'of datasets')
 
         add_dataset(self)
 

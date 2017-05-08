@@ -1,5 +1,4 @@
 import os
-from subprocess import call
 
 from skbio import DistanceMatrix
 
@@ -8,8 +7,12 @@ from littlebigo import Pipeline
 
 from mdsa import subsample
 
+from littlebigo.master import clear_datasets
+
 
 def test_pipeline():
+    clear_datasets()
+
     def load_emp_dataset():
         data = Dataset('test-dataset',
                        './tests/test-dataset.txt')
@@ -21,6 +24,7 @@ def test_pipeline():
 
 
 def test_emp_subsample_pipeline():
+    clear_datasets()
     OUT_PATH = './outputs/test-dataset-subsampled.txt'
     SUBSAMPLE_DIM = 10
 
